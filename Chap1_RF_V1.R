@@ -39,7 +39,8 @@ library(randomForest)
 library(datasets)
 library(caret) # confusion Matrix
 library(tidyverse)
-
+library(ggplot2)
+install.packages("ggplot2")
 # fit the rf model
 #practice with data set -- iris
 data <- iris
@@ -61,8 +62,9 @@ train <- data[ind==1,]
 test <- data[ind==2,]
 
 # Random Forest in R
-rf <- randomForest(Species ~ ., data=train, proximity=TRUE) 
+rf <- randomForest(Species ~ ., data=train, proximity=TRUE) # non-linear multiple regression
 print(rf)
+rf
 
 # Train Data -- let's see if we can lower 4.72%
 p1 <- predict(rf, train)
@@ -105,6 +107,34 @@ partialPlot(rf, train, Petal.Width, "setosa")
 
 # Multi-dimensional Scaling Plot of Proximity Matrix
 MDSplot(rf, train$Species)
+
+
+
+# Visualize variable importance 2
+
+rf.fit <- randomForest(Species ~ ., data = data, ntree = 1000,
+                       keep.forest=FALSE, importance = TRUE)
+# Get variable importance from the model fit
+ImpData <- as.data.frame(importance(rf.fit))
+ImpData$Var.Names <- row.names(ImpData)
+
+ggplot(ImpData, aes(x=Var.Names, y=`%IncMSE`)) +
+  geom_segment( aes(x=Var.Names, xend=Var.Names, y=0, yend=`%IncMSE`), color="skyblue") +
+  geom_point(aes(size = IncNodePurity), color="blue", alpha=0.6) +
+  theme_light() +
+  coord_flip() +
+  theme(
+    legend.position="bottom",
+    panel.grid.major.y = element_blank(),
+    panel.border = element_blank(),
+    axis.ticks.y = element_blank()
+  )
+
+
+
+#https://www.r-bloggers.com/2021/04/random-forest-in-r/
+
+
 
 # practice 1
 str(airquality)
