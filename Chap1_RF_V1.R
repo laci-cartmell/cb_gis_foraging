@@ -15,8 +15,8 @@
 #
 ########################
 
+setwd("C:/Users/Owner/Documents/GitHub/cb_gis_foraging")
 
-# A. Data Visualization
 
 # Required libraries
 #install.packages("readxl")
@@ -27,7 +27,7 @@ library(readr)  #csv files
 GIS_Landuse_master <- read_excel("GIS_Landuse_master.xlsx", 
                                  sheet = "Wetlands Combined")
 datatable <- GIS_Landuse_master
-
+glimpse(datatable)
 ##########################
 # Random Forest with Statology
 #########################
@@ -35,17 +35,126 @@ datatable <- GIS_Landuse_master
 install.packages("randomForest")
 install.packages('caret')
 install.packages("tidyverse")
+install.packages("ggplot2")
+install.packages("gridExtra")
+install.packages("cowplot")
+
 library(randomForest)
 library(datasets)
 library(caret) # confusion Matrix
 library(tidyverse)
 library(ggplot2)
-install.packages("ggplot2")
+library(cowplot)
+library(gridExtra)
+
 # fit the rf model
-#practice with data set -- iris
-data <- iris
-str(data)
-# 150 obs,5 vars
+#practice with data set -- GIS_Landuse_master, datatable
+view(datatable)
+# 1362x19
+
+featurelist <- colnames(datatable)
+#pull out vars with order
+features <- c('Sepal.Length', 'Sepal.Width', 'Petal.Length', 'Petal.Width', 'Species')
+df <- datatable[,featurelist] 
+
+# add random column
+#random from uniform distribution for same rows as df
+df['random'] <- runif(nrow(df)) 
+glimpse(df)
+
+
+## Plotting Functions
+create_rfplot <- function(rf,type){
+  imp <- importance(rf, type=type, scale = F)
+  featureImportance <- data.frame(Feature=row.names(imp), Importance=imp[,1])
+  
+  p <- ggplot(featureImportance, aes(x=reorder(Feature, Importance), y=Importance)) +
+    geom_bar(stat="identity", fill="#53cfff", width = 0.65) +
+    coord_flip() + 
+    theme_light(base_size=20) +
+    theme(axis.title.x=element_blank(),
+          axis.title.y=element_blank(),
+          axis.text.x = element_text(size = 15, color = "black"),
+          axis.text.y = element_text(size = 15, color = "black")) 
+  return(p)
+}
+
+# create ggplot
+create_ggplot <- function(featureImportance){
+  p <- ggplot(featureImportance, aes(x=reorder(Feature, Importance), y=Importance)) +
+    geom_bar(stat="identity", fill="#53cfff", width = 0.65) +
+    coord_flip() + 
+    theme_light(base_size=20) +
+    theme(axis.title.x=element_blank(),
+          axis.title.y=element_blank(),
+          axis.text.x = element_text(size = 15, color = "black"),
+          axis.text.y = element_text(size = 15, color = "black")) 
+  return(p)
+}
+
+glimpse(df)
+### Type 1 - Mean decrease in MSE by **Permutation
+# without random column
+rf1 <- randomForest(Size ~ ., data = df, mtry=4,
+                    ntree = 40, importance=T)
+importance(rf1, scale=F)
+
+p1 <- create_rfplot(rf1, type = 1)
+#ggsave('../article/images/regr_permute_R.svg',plot = p1, device = 'svg', height = 4, width = 6)
+p1
+
+# with random column
+rf2 <- randomForest(Size~., data = df, mtry = 4,
+                    ntree = 40, importance=T)
+importance(rf2, scale=F)
+p2 <- create_rfplot(rf2, type = 1)
+#ggsave('../article/images/regr_permute_random_R.svg',
+p2
+#plot = p2, device = 'svg', height = 4, width = 6)
+imp1 <- data.frame(importance(rf2, type = 1, scale=F))
+write.csv(imp1, file="./data/imp_R_regr_MSE.csv")
+
+## Examine Costs by Drop-Column Importance
+# PARAMS : ntree = 40, mtry = 2, nodesize = 1
+
+get_drop_imp <- function(df, columns){
+  X <- df[,c(columns, 'Size')] # data
+  rf <- randomForest(price~., data = X,
+                     ntree = 40, mtry=2, nodesize=1, importance=T)
+  full_rsq <- mean(rf$rsq) # R-squared
+  
+  imp <- c()
+  for (c in columns){
+    X_sub <- X[, !(colnames(X) == c)]
+    rf <- randomForest(price~., data = X_sub,
+                       ntree = 40, mtry=2, nodesize=1, importance=T)
+    sub_rsq <- mean(rf$rsq) # R-squared
+    diff_rsq <- full_rsq - sub_rsq
+    imp <- c(imp, diff_rsq)
+  }
+  featureImportance <- data.frame(Feature=columns, Importance=imp)
+  return(featureImportance)
+}
+
+columns <- c('bathrooms', 'bedrooms', 'longitude', 'latitude')
+featureImportance <- get_drop_imp(df, columns)
+p1 <- create_ggplot(featureImportance)
+#ggsave('../article/images/regr_drop_R.svg',
+#plot = p1, device = 'svg', height = 4, width = 6)
+
+columns <- c('bathrooms', 'bedrooms', 'longitude', 'latitude', 'random')
+featureImportance <- get_drop_imp(df, columns)
+p2 <- create_ggplot(featureImportance)
+#ggsave('../article/images/regr_drop_random_R.svg',
+#plot = p2, device = 'svg', height = 4, width = 6)
+
+write.csv(featureImportance, file="./data/imp_R_regr_drop.csv")
+
+
+
+
+### CLASSIFICATION - Target Var must be factored
+
 
 #set species as a factor
 data$Species <- as.factor(data$Species)
@@ -64,7 +173,7 @@ test <- data[ind==2,]
 # Random Forest in R
 rf <- randomForest(Species ~ ., data=train, proximity=TRUE) # non-linear multiple regression
 print(rf)
-rf
+rf   
 
 # Train Data -- let's see if we can lower 4.72%
 p1 <- predict(rf, train)
@@ -110,7 +219,7 @@ MDSplot(rf, train$Species)
 
 
 
-# Visualize variable importance 2
+# REGRESSION - Continuous variable 
 
 rf.fit <- randomForest(Species ~ ., data = data, ntree = 1000,
                        keep.forest=FALSE, importance = TRUE)
