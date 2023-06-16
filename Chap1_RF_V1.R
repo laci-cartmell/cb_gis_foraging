@@ -18,19 +18,12 @@
 setwd("C:/Users/Owner/Documents/GitHub/cb_gis_foraging")
 
 
-# Required libraries
-#install.packages("readxl")
-library(readxl) #reads excel to table  !check sheets & data type for columns
-library(readr)  #csv files
 
-#read in file
-GIS_Landuse_master <- read_excel("GIS_Landuse_master.xlsx", 
-                                 sheet = "Wetlands Combined")
-datatable <- GIS_Landuse_master
-glimpse(datatable)
 ##########################
 # Random Forest with Statology
 #########################
+
+
 
 install.packages("randomForest")
 install.packages('caret')
@@ -38,6 +31,7 @@ install.packages("tidyverse")
 install.packages("ggplot2")
 install.packages("gridExtra")
 install.packages("cowplot")
+install.packages("e1071")
 
 library(randomForest)
 library(datasets)
@@ -46,21 +40,319 @@ library(tidyverse)
 library(ggplot2)
 library(cowplot)
 library(gridExtra)
+library(e1071)
+
+
 
 # fit the rf model
 #practice with data set -- GIS_Landuse_master, datatable
+
+
+#read in file
+GIS_Landuse_master <- read_excel("GIS_Landuse_master.xlsx", 
+                                 sheet = "Wetlands Combined")
+datatable <- GIS_Landuse_master
+glimpse(datatable)
 view(datatable)
 # 1362x19
 
-featurelist <- colnames(datatable)
-#pull out vars with order
-features <- c('Sepal.Length', 'Sepal.Width', 'Petal.Length', 'Petal.Width', 'Species')
-df <- datatable[,featurelist] 
 
-# add random column
-#random from uniform distribution for same rows as df
-df['random'] <- runif(nrow(df)) 
+# factor Colony Name, Substrate, Year
+#  SPECIFY SUBSTRATE/YEAR/COLONYNAME AS FACTOR VARS, INDICATE BASE FOR SUBSTRATE AND YEAR
+datatable$COLONYNAME <- as.factor(datatable$COLONYNAME)
+datatable$Substrate <- as.factor(datatable$Substrate)
+datatable$Year <- as.factor(datatable$Year)
+is.factor(datatable$Substrate)
+
+#Remove colony ID
+features <- colnames(datatable[,2:19])
+columns <- colnames(df)
+
+df <- datatable[,features] 
+glimpse(features)
 glimpse(df)
+# mtry = 1/3 *p
+mtry_r =(17/3)
+
+
+#################
+# MODELTRAINING #
+###################
+#split dataset into training (70%) testing (30%)
+train_index <- createDataPartition(y=df$Size, p=0.7, list=FALSE)
+
+#subset data
+training_set <- df[train_index, ]
+testing_set <- df[-train_index, ]
+
+
+
+
+#https://www.guru99.com/r-random-forest-tutorial.html
+
+
+# Set seed for reproducibility 
+#set.seed(4)
+
+#k-validation
+#repeated cv with 5 folds, 3 repeats
+repeat_cv <- trainControl(method ='repeatedcv', number=10,repeats=3, search = "grid")
+trControl <- trainControl(method = "repeatedcv", 
+                          number=10,
+                          repeats=3,
+                          search="grid" #random search
+)
+
+
+# use caret to evaluate model
+rf_default <- train(Size ~.,
+                    data = training_set,
+                    method = "rf",
+                    metric="RMSE",
+                    trControl = trControl)
+
+print(rf_default)
+
+#search for best mtry
+# Construct vector with value 1-10
+tuneGrid <- expand.grid(.mtry = c(1: 10)) 
+rfmtry <- train(Size ~., 
+                data = training_set,
+                methods='rf',
+                #add repeated cv
+                #accuracy measurement
+                metric='RMSE',
+                tuneGrid = tuneGrid,
+                trControl = trControl,
+                importance = TRUE,
+                nodesize = 14,
+                ntree = 300)
+print(rfmtry)
+
+# best value of mtry
+rfmtry$bestTune$mtry
+max(rfmtry$results$Accuracy)
+best_mtry <-  rfmtry$bestTune$mtry
+
+#Find best maxnodes
+
+#create list where model results are stored
+store_maxnode <- list()
+#use best mtry
+tuneGrid <- expand.grid(.mtry = best_mtry)
+#loop to evaluate maxnode values 5-15
+for (maxnodes in c(5: 15)) {
+ # set.seed(1234)
+  rf_maxnode <- train(Size~.,
+                      data = training_set,
+                      method = "rf",
+                      metric = "RMSE",
+                      tuneGrid = tuneGrid,
+                      trControl = trControl,
+                      importance = TRUE,
+                      nodesize = 14,
+                      maxnodes = maxnodes,
+                      ntree = 300)
+  current_iteration <- toString(maxnodes)
+  store_maxnode[[current_iteration]] <- rf_maxnode
+}
+results_mtry <- resamples(store_maxnode)
+summary(results_mtry)
+
+### trying higher values
+for (maxnodes in c(20: 30)) {
+  # set.seed(1234)
+  rf_maxnode <- train(Size~.,
+                      data = training_set,
+                      method = "rf",
+                      metric = "RMSE",
+                      tuneGrid = tuneGrid,
+                      trControl = trControl,
+                      importance = TRUE,
+                      nodesize = 14,
+                      maxnodes = maxnodes,
+                      ntree = 300)
+  key <- toString(maxnodes)
+  store_maxnode[[key]] <- rf_maxnode
+}
+results_node <- resamples(store_maxnode)
+summary(results_node)
+
+## Best number of trees
+store_maxtrees <- list()
+for (ntree in c(250, 300, 350, 400, 450, 500, 550, 600, 800, 1000, 2000)) {
+  set.seed(5678)
+  rf_maxtrees <- train(Size~.,
+                       data = training_set,
+                       method = "rf",
+                       metric = "RMSE",
+                       tuneGrid = tuneGrid,
+                       trControl = trControl,
+                       importance = TRUE,
+                       nodesize = 14,
+                       maxnodes = 24,
+                       ntree = ntree)
+  key <- toString(ntree)
+  store_maxtrees[[key]] <- rf_maxtrees
+}
+results_tree <- resamples(store_maxtrees)
+summary(results_tree)
+
+## Now model is tuned and we can train it!
+# Train random forest with new params
+fit_rf <- train(survived~.,
+                data_train,
+                method = "rf",
+                metric = "RMSE",
+                tuneGrid = tuneGrid,
+                trControl = trControl,
+                importance = TRUE,
+                nodesize = 14,
+                ntree = 800,
+                maxnodes = 24)
+
+# Evaluate Model with caret
+# Use prediction to compute -----
+prediction <- predict(fit_rf, training_set)
+#compare fit
+confusionMatrix(prediction,
+                testing_set$Size)
+
+#Visualize results
+varImpPlot(fit_rf)
+
+#https://www.guru99.com/r-random-forest-tutorial.html
+
+
+
+
+
+
+
+
+# Variable Importance Goes Here !
+
+#### Performance on Testing Data
+#Generate Predictions
+y_predict <- predict(
+  object=forest,
+  newdata=testing_set[, -1]  # data for predictions, no Size
+)
+
+# Accuracy of model 
+accuracy <- mean(y_predict == testing_set$Size)*100
+cat('Accuracy on testing data: ', round(accuracy, 2), '%',  sep='')
+
+#####################
+# MODEL TUNING ####
+##########################
+library(randomForest)
+install.packages("mlbench")
+library(mlbench)
+data(BostonHousing)
+train <- BostonHousing
+train[,12]
+#subset data
+training_set[,1]
+#Tune
+t <- tuneRF(train[,-5], train[,5],
+            stepFactor = 0.5,
+            plot = TRUE,
+            ntreeTry = 150,
+            trace = TRUE,
+            improve = 0.05)
+rf_tuned <- tuneRF(training_set[,1], training_set[,-1],
+                   ntreeTry=500,
+                  mtry = 2, #mtrystart
+                   stepFactor = .5,
+                   plot = TRUE,
+                   trace = FALSE,
+                   improve = 0.001)
+##
+tr = dt
+rf_tuned
+#
+tuneRF_res = lapply(1:10,function(i){
+  
+  tr = tuneRF(training_set[,1], training_set[,-1],mtryStart=2,step=0.9,ntreeTry = 100,trace = TRUE,improve=1e-5)
+  tr = data.frame(tr)
+  tr$RMSE = sqrt(tr[,2])
+  tr
+})
+
+tuneRF_res = do.call(rbind,tuneRF_res)
+
+control <- trainControl(method="cv", number=10,returnResamp="all")
+tunegrid <- expand.grid(.mtry=c(2:7))
+caret_res <- train(Size ~., data=train, method="rf", metric="RMSE", 
+                   tuneGrid=tunegrid, ntree = 100, trControl=control)
+
+library(ggplot2)
+df = rbind(
+  data.frame(tuneRF_res[,c("mtry","RMSE")],test="tuneRF"),
+  data.frame(caret_res$resample[,c("mtry","RMSE")],test="caret")
+)
+df = df[df$mtry!=1,]
+
+ggplot(df,aes(x=mtry,y=RMSE,col=test))+
+  stat_summary(fun.data=mean_se,geom="errorbar",width=0.2) +
+  stat_summary(fun=mean,geom="line") + facet_wrap(~test)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+model <- randomForest(Size ~ ., data = df, ntree = 1000,
+                      keep.forest=FALSE, importance = TRUE)
+#display fitted model
+rf
+# number of trees that produce lowest test MSE
+which.min(rf$mse)
+
+#find RMSE of best model
+sqrt(rf$mse[which.min(rf$mse)])
+#   #AVG diff btw predicted and observed
+
+# plot test MSE based on # of trees used
+plot(rf)
+
+# plot with importance of each predictor var 
+varImpPlot(rf) 
+#x-axis= avg.incr in node purity of regression trees y-axis=splitting of various predictors
+
+#tune the model & plots OOB vs mxy
+model_tuned <- tuneRF(
+  x <- df[,c(columns, 'Size')], #define predictor variables
+  y=df$Size, #define response variable
+  ntreeTry=500,
+  mtryStart=4, 
+  stepFactor=1.5,
+  improve=0.01,
+  trace=FALSE #don't show real-time progress
+)
+varImpPlot(model_tuned) 
+importance(model_tuned, scale=F)
+
+
+
+
+
+
+#########################
+## DROP-COLUMN IMPORTANCE
+###############################
+
+
 
 
 ## Plotting Functions
@@ -93,41 +385,59 @@ create_ggplot <- function(featureImportance){
 }
 
 glimpse(df)
+# add random column
+#random from uniform distribution for same rows as df
+df['random'] <- runif(nrow(df)) 
+glimpse(df)
+
+##########
+#
+
 ### Type 1 - Mean decrease in MSE by **Permutation
 # without random column
-rf1 <- randomForest(Size ~ ., data = df, mtry=4,
-                    ntree = 40, importance=T)
-importance(rf1, scale=F)
 
-p1 <- create_rfplot(rf1, type = 1)
+# random forest
+rf1 <- randomForest(Size ~ ., data = df[, 1:18], mtry=mtry_r,
+                    ntree = 1000, importance=T)
+#feature importance
+importance(rf1, scale=F)
+#
+p1 <- create_rfplot(rf1, type = 1)  # type 1 - importances, regression
 #ggsave('../article/images/regr_permute_R.svg',plot = p1, device = 'svg', height = 4, width = 6)
 p1
 
 # with random column
-rf2 <- randomForest(Size~., data = df, mtry = 4,
-                    ntree = 40, importance=T)
+
+rf2 <- randomForest(Size~., data = df, mtry = mtry_r,
+                    ntree = 1000, importance=T)
 importance(rf2, scale=F)
 p2 <- create_rfplot(rf2, type = 1)
 #ggsave('../article/images/regr_permute_random_R.svg',
 p2
 #plot = p2, device = 'svg', height = 4, width = 6)
 imp1 <- data.frame(importance(rf2, type = 1, scale=F))
-write.csv(imp1, file="./data/imp_R_regr_MSE.csv")
+imp1
+write.csv(imp1, file="./imp_R_regr_MSE.csv")
+
+#########################
+## DROP-COLUMN IMPORTANCE
+###############################
 
 ## Examine Costs by Drop-Column Importance
-# PARAMS : ntree = 40, mtry = 2, nodesize = 1
+
+# PARAMS ######## use tuned params: ntree = 40, mtry = 2, nodesize = 1
 
 get_drop_imp <- function(df, columns){
   X <- df[,c(columns, 'Size')] # data
-  rf <- randomForest(price~., data = X,
-                     ntree = 40, mtry=2, nodesize=1, importance=T)
+  rf <- randomForest(Size ~., data = X,
+                     ntree = 500, mtry=mtry_r, nodesize=5, importance=T)
   full_rsq <- mean(rf$rsq) # R-squared
   
   imp <- c()
   for (c in columns){
     X_sub <- X[, !(colnames(X) == c)]
-    rf <- randomForest(price~., data = X_sub,
-                       ntree = 40, mtry=2, nodesize=1, importance=T)
+    rf <- randomForest(Size~., data = X_sub,
+                       ntree = 500, mtry=mtry_r, nodesize=5, importance=T)
     sub_rsq <- mean(rf$rsq) # R-squared
     diff_rsq <- full_rsq - sub_rsq
     imp <- c(imp, diff_rsq)
@@ -136,13 +446,16 @@ get_drop_imp <- function(df, columns){
   return(featureImportance)
 }
 
-columns <- c('bathrooms', 'bedrooms', 'longitude', 'latitude')
+columns <- colnames(df[2:18])
+
 featureImportance <- get_drop_imp(df, columns)
-p1 <- create_ggplot(featureImportance)
+
+p500 <- create_ggplot(featureImportance)
+p500
 #ggsave('../article/images/regr_drop_R.svg',
 #plot = p1, device = 'svg', height = 4, width = 6)
 
-columns <- c('bathrooms', 'bedrooms', 'longitude', 'latitude', 'random')
+columns <- colnames(df[2:19])
 featureImportance <- get_drop_imp(df, columns)
 p2 <- create_ggplot(featureImportance)
 #ggsave('../article/images/regr_drop_random_R.svg',
@@ -151,22 +464,50 @@ p2 <- create_ggplot(featureImportance)
 write.csv(featureImportance, file="./data/imp_R_regr_drop.csv")
 
 
+featureImportance <- get_drop_imp(df, columns)
+p2 <- create_ggplot(featureImportance)
+#ggsave('../article/images/regr_drop_random_R.svg',
+#plot = p2, device = 'svg', height = 4, width = 6)
+
+write.csv
+
+
+
+
+########################
+# VAR IMPORTANCE - TEST/TRAIN SET
+###########################
+# choose model params - node, max tree, mtry
+# Check performance of those params by comparing a test/train set to look at accuracy
+# Then use those params in determining Feature Importance
+# With Feature Importance, able to begin writing results
+#
+#
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 ### CLASSIFICATION - Target Var must be factored
 
-
-#set species as a factor
-data$Species <- as.factor(data$Species)
-table(data$Species)
-  # factor data needs to be balanced
-
 # set.seed
 set.seed(3)
-
+df <- (df[1:18])
 # set test & train data
 # sample data & create 2 datasets with replacement with 70 in one and 30% in other
-ind <- sample(2, nrow(data), replace = TRUE, prob = c(0.7, 0.3))
+ind <- sample(2, nrow(df), replace = TRUE, prob = c(0.7, 0.3))
 train <- data[ind==1,]
 test <- data[ind==2,]
 
@@ -221,7 +562,7 @@ MDSplot(rf, train$Species)
 
 # REGRESSION - Continuous variable 
 
-rf.fit <- randomForest(Species ~ ., data = data, ntree = 1000,
+rf.fit <- randomForest(Size ~ ., data = df, ntree = 500,
                        keep.forest=FALSE, importance = TRUE)
 # Get variable importance from the model fit
 ImpData <- as.data.frame(importance(rf.fit))
@@ -249,7 +590,7 @@ ggplot(ImpData, aes(x=Var.Names, y=`%IncMSE`)) +
 str(airquality)
 
 #find number of rows with missing values
-sum(!complete.cases(airquality))
+sum(!complete.cases(datatable))
 
 # Fill in missing values with col. median
 for (i in 1:ncol(airquality)) {
@@ -260,62 +601,14 @@ for (i in 1:ncol(airquality)) {
 #make reproducible
 set.seed(1)
 
-#fit the model
-model <- randomForest(
-  formula = Ozone ~ .,
-  data = airquality
-)
 
+model <- randomForest(Size ~ ., data = df, ntree = 1000,
+                       keep.forest=FALSE, importance = TRUE)
 #display fitted model
 model
 
-# number of trees that produce lowest test MSE
-which.min(model$mse)
 
-#find RMSE of best model
-sqrt(model$mse[which.min(model$mse)])
-#   #AVG diff btw predicted and observed
-
-# plot test MSE based on # of trees used
-plot(model)
-
-# plot with importance of each predictor var 
-varImpPlot(model) 
-#x-axis= avg.incr in node purity of regression trees y-axis=splitting of various predictors
-
-#tune the model & plots OOB vs mxy
-model_tuned <- tuneRF(
-  x=airquality[,-1], #define predictor variables
-  y=airquality$Ozone, #define response variable
-  ntreeTry=500,
-  mtryStart=4, 
-  stepFactor=1.5,
-  improve=0.01,
-  trace=FALSE #don't show real-time progress
-)
 
 #   #AVG diff btw predicted and observed
 
-# Use Final Model to Make Predictions
-#define new observation
-new <- data.frame(Solar.R=150, Wind=8, Temp=70, Month=5, Day=5)
-#use bagged model to predict ozone
-predict(model, newdata = new)
 ##################
-############
-
-rf = RandomForestRegressor(
-  n_estimators = 300,         # # of decision trees
-  max_features = 'sqrt',      # max features per tree = sqrt of number of params
-  max_depth = 5,              # Max depth of each tree
-  random_state = 18,           # keeps things standard
-).fit(x_train, y_train)
-  
-# Model Performance
-
-# Set prediction
-prediction = rf.predict(x_test)
-mse = mean_squared_error(y_test, prediction)
-rmse = mse**.5
-
-print(mse, rmse)
