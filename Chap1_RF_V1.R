@@ -25,6 +25,8 @@ setwd("C:/Users/Owner/Documents/GitHub/cb_gis_foraging")
 
 
 
+install.packages("Metrics")
+library(Metrics)
 install.packages("randomForest")
 install.packages('caret')
 install.packages("tidyverse")
@@ -46,16 +48,19 @@ library(readxl)
 
 # fit the rf model
 #practice with data set -- GIS_Landuse_master, datatable
-
-
-#read in file
+#read in file 
+# All variables
 GIS_Landuse_master <- read_excel("GIS_Landuse_master.xlsx", 
-                                 sheet = "Wetlands Combined")
+                                 sheet = "Sheet5")
+# 1362x23
+
+# After correlation matrix - Developed was combined
+GIS_Landuse_master <- read_excel("GIS_Landuse_master.xlsx", 
+                                 sheet = "Developed")
 datatable <- GIS_Landuse_master
 glimpse(datatable)
 view(datatable)
-# 1362x19
-
+# 1362x20
 
 # factor Colony Name, Substrate, Year
 #  SPECIFY SUBSTRATE/YEAR/COLONYNAME AS FACTOR VARS, INDICATE BASE FOR SUBSTRATE AND YEAR
@@ -64,58 +69,193 @@ datatable$Substrate <- as.factor(datatable$Substrate)
 datatable$Year <- as.factor(datatable$Year)
 is.factor(datatable$Substrate)
 
+## COORDINATES
+colcoords <- read_excel("F:\nlcd_land_cover_l48_20210604\ColonyData\NLCD_Coordinates.xlsx",
+                        sheet = "sheet1")
+#unique rows only
+datatable <- unique(colcoords)
+
+#view table - if replicate coords exist then
+# keep only unique coordinates & the related name
+datatable <- unique(colcoords[,1])
+
+#create correlation matrix of predictor vars
+install.packages("corrplot")
+library("corrplot")
+#define variables
+corrvars <- colnames(datatable[,5:19])
+print(corrvars)
+data <- datatable[,5:19]
+
+
+#"Open_Water", "Developed", "Barren_Land", "Deciduous_Forest","Evergreen_Forest", "Mixed_Forest", "Shrub_Scrub", "Herbaceous", "Hay_Pasture", "Cultivated_Crops", "Wetlands")]
+#corelation matrix
+M2 <- cor(data)
+head(round(M,2))
+
+#visualizing correlogram
+#as circle
+corrplot(M2, method="circle", method="pie", method="color", method="number")
+# upper triangular matrix
+corrplot(M2, method= "number", type="upper")
+
+# reordering
+# correlogram with hclust reordering
+corrplot(M2, type = "upper", order = "hclust")
+corrplot(M, method="number", type = "upper", order = "hclust")
+
+## customize the correlogram
+# Using different color spectrum
+# changing colour of the correlogram
+library(RColorBrewer)
+library(corrplot)
+col <- colorRampPalette(c("#BB4444", "#EE9988", 
+                          "#FFFFFF", "#77AADD",
+                          "#4477AA"))
+corrplot(M2, type="upper", order = "hclust", col = col(200))
+
+
+col<- colorRampPalette(c("red", "white", "blue"))(20)
+
+corrplot(M, type="upper", order = "hclust", col = col)
+
+corrplot(M, type="upper", order = "hclust", 
+         col=brewer.pal(n = 8, name = "RdBu"))
+
+## Correlation matrix with pvalues
+# mat : is a matrix of data
+# ... : further arguments to pass 
+# to the native R cor.test function
+cor.mtest <- function(mat, ...) 
+{
+  mat <- as.matrix(mat)
+  n <- ncol(mat)
+  p.mat<- matrix(NA, n, n)
+  diag(p.mat) <- 0
+  for (i in 1:(n - 1)) 
+  {
+    for (j in (i + 1):n)
+    {
+      tmp <- cor.test(mat[, i], mat[, j], ...)
+      p.mat[i, j] <- p.mat[j, i] <- tmp$p.value
+    }
+  }
+  colnames(p.mat) <- rownames(p.mat) <- colnames(mat)
+  p.mat
+}
+
+# matrix of the p-value of the correlation
+p.mat <- cor.mtest(data)
+head(p.mat[, 1:5])
+# Specialized the insignificant value
+# according to the significant level
+corrplot(M2, type = "upper", order = "hclust", col = col(200),
+         tl.col="black", tl.srt = 45, #text labels, with rotation
+                  p.mat = p.mat, sig.level = 0.01)
+
+# Leave blank on no significant coefficient
+corrplot(M2, type = "upper", order = "hclust", col = col(200), method = 'color',
+         tl.col="black", tl.srt = 45, #text labels, with rotation
+         p.mat = p.mat, 
+         addCoef.col = 'black', number.cex = .8, tl.cex = .8,
+         insig = "blank") # significane levels
+
+## add significant level stars
+corrplot(M2, p.mat = p.mat, method = 'color', diag = FALSE, type = 'upper', 
+         col = col(200), tl.col="black", tl.srt = 45, #text labels, with rotation
+         sig.level = c(0.001, 0.01, 0.05), pch.cex = 0.8,
+         insig = 'label_sig', pch.col = 'grey20', order = 'hclust',
+         tl.cex = 0.8)
+
+
+## add significant level stars
+corrplot(M, p.mat = p.mat, method = 'color', diag = FALSE, type = 'upper',
+         sig.level = c(0.001, 0.01, 0.05), pch.cex = 0.9,
+         insig = 'label_sig', pch.col = 'grey20', order = 'hclust',
+         tl.col="black", tl.srt = 45, # Text label color and rotation
+         tl.cex =0.8
+         )
+## Perform needed combinations, variable reduction to minimilaize correlation
+# I saved dataset and used excel to combine all developed cats with simple 
+#  addition. Go back to the top of script and change datatable to refelct
+#Normality check
+#histogram
+hist(datatable$Size)
+hist(datatable$Open_Water)
+hist(datatable$Developed_combined)
+hist(datatable$Barren_Land)
+hist(datatable$Deciduous_Forest)
+hist(datatable$Evergreen_Forest)
+hist(datatable$Mixed_Forest)
+hist(datatable$Shrub_Scrub)
+hist(datatable$Herbaceous)  # ONLY ONE W/NORMAL DISTRIBUTION
+hist(datatable$Hay_Pasture)
+hist(datatable$Cultivated_Crops)
+hist(datatable$Wetlands)
+hist(datatable$Emergent_Herbaceous_Wetlands)
+
+#Other checks for normality
+#density plot
+ggdensity(datatable$Size, fill = "lightgray")
+#QQ plot
+ggqqplot(datatable$Size)
+#
+
+## Check linearity
+plot(Size ~ D, data = datatable)
+
+cor(datatable$Size, datatable$D)
+
+
+#################
+# MODELTRAINING #
+###################
+
+glimpse(datatable)
 #Remove colony ID
-features <- colnames(datatable[,2:19])
+features <- colnames(datatable[-2])
 df <- datatable[,features] 
 columns <- colnames(df)
 
 glimpse(features)
 glimpse(df)
 # mtry = 1/3 *p
-mtry_r =(17/3)
+mtry_r =(ncol(df)/3)
+mtry_r
 
+# Set seed for reproducibility 
+set.seed(1273)
 
-#################
-# MODELTRAINING #
-###################
 #split dataset into training (70%) testing (30%)
-train_index <- createDataPartition(y=df$Size, p=0.7, list=FALSE)
+train_index <- createDataPartition(y=df$Size, p=0.8, list=FALSE)
 
 #subset data
 training_set <- df[train_index, ]
 testing_set <- df[-train_index, ]
 
 
-
-
 #https://www.guru99.com/r-random-forest-tutorial.html
 
 
-# Set seed for reproducibility 
-set.seed(4)
-
 #k-validation
 #repeated cv with 5 folds, 3 repeats
-repeat_cv <- trainControl(method ="repeatedcv", number=10,repeats=3, search = "grid")
+repeat_cv <- trainControl(method ="repeatedcv", 
+                          number=10,repeats=3, 
+                          search = "grid")
 trControl <- trainControl(method = "repeatedcv", 
-                          number=10,
-                          repeats=3,
+                          number=10, repeats=3,
                           search="grid" #random search
 )
 
 
 # use caret to evaluate model
-rf_default <- train(Size ~.,
-                    data = training_set,
-                    method = "rf",
-                    metric="RMSE",
-                    trControl = trControl)
 
-print(rf_default)
-rf_default$results  
-#search for best mtry
+#search for best mtry 
+#A large mtry ensures (with high probability) at least one strong variable in the set of mtry candidate variables
+# but may mask moderate varaibles - choose lower for when vars arent strong
 # Construct vector with value 1-10
-tuneGrid <- expand.grid(.mtry = c(5: 15)) 
+
+tuneGrid <- expand.grid(.mtry = c(3: 10))  
 rfmtry <- train(Size ~., 
                 data = training_set,
                 methods='rf',
@@ -126,24 +266,23 @@ rfmtry <- train(Size ~.,
                 trControl = trControl,
                 importance = TRUE,
                 nodesize = 5,
-                ntree = 300)
+                ntree = 301)
 print(rfmtry)
 
 # best value of mtry
 rfmtry$bestTune$mtry
 max(rfmtry$results$RMSE)
 best_mtry <-  rfmtry$bestTune$mtry
+best_mtry
 
-
-##Find best maxnodes
+ ##Find best maxnodes
 
 #create list where model results are stored
 store_maxnode <- list()
 #use best mtry
 tuneGrid <- expand.grid(.mtry = best_mtry)
 #loop to evaluate maxnode values 5-15
-for (maxnodes in c(5: 25)) {
- # set.seed(1234)
+for (maxnodes in c(20: 35)) {
   rf_maxnode <- train(Size~.,
                       data = training_set,
                       method = "rf",
@@ -151,25 +290,26 @@ for (maxnodes in c(5: 25)) {
                       tuneGrid = tuneGrid,
                       trControl = trControl,
                       importance = TRUE,
-                      nodesize = 5,
+                      nodesize = 4,
                       maxnodes = maxnodes,
-                      ntree = 300)
+                      ntree = 301)
   current_iteration <- toString(maxnodes)
   store_maxnode[[current_iteration]] <- rf_maxnode
 }
 print(rf_maxnode)
-results_mtry <- resamples(store_maxnode)
-summary(results_mtry)
-## 22, or 8 
+results_mAX <- resamples(store_maxnode)
+summary(results_mAX)
 
+ ## 32 - 332.0108
+ ## 31 - 328
 
+#node size - larger value is more general tree - of 1 = matched but overfitt
 ### trying node size values
 store_nodesize <- list()
 #use best mtry
 tuneGrid <- expand.grid(.mtry = best_mtry)
 
-for (nodesize in c(3: 15)) {
-  # set.seed(1234)
+for (nodesize in c(3: 18)) {
   rf_nodesize <- train(Size~.,
                       data = training_set,
                       method = "rf",
@@ -178,28 +318,30 @@ for (nodesize in c(3: 15)) {
                       trControl = trControl,
                       importance = TRUE,
                       nodesize = nodesize,
-                      maxnodes = 22,
-                      ntree = 300)
+                      maxnodes = 31,
+                      ntree = 301)
   key <- toString(nodesize)
   store_nodesize[[key]] <- rf_nodesize
 }
 print(rf_nodesize)
 results_nodesize <- resamples(store_nodesize)
 summary(results_nodesize)
+#7
 
 ## Best number of trees
-store_maxtrees <- list()
-for (ntree in c(250, 300, 350, 400, 450, 500, 550, 600, 800, 1000, 2000)) {
-# set.seed(5678)
+set.seed(61273)
+store_maxtrees <-   list()
+for (ntree in c(151, 251, 301, 351, 401, 451, 501, 551, 601, 801, 1001, 1501)) {
+  set.seed(61273)
   rf_maxtrees <- train(Size~.,
                        data = training_set,
                        method = "rf",
                        metric = "RMSE",
                        tuneGrid = tuneGrid,
                        trControl = trControl,
-                       importance = TRUE,
-                       nodesize = 8,
-                       maxnodes = 22,
+                       importance =  TRUE,
+                       nodesize = 7,
+                       maxnodes = 31,
                        ntree = ntree)
   key <- toString(ntree)
   store_maxtrees[[key]] <- rf_maxtrees
@@ -214,6 +356,18 @@ print(rf_maxtrees)
 
 ## Now model is tuned and we can train it!
 # Train random forest with new params
+
+#fit_rf <- train(Size ~.,
+#                training_set,
+#                method = "rf",
+#                metric = "RMSE",
+#                tuneGrid = tuneGrid,
+#                trControl = trControl,
+#                importance = TRUE,
+#                nodesize = 6,
+#                ntree = 800,
+#                maxnodes = 14)
+
 fit_rf <- train(Size ~.,
                 training_set,
                 method = "rf",
@@ -221,34 +375,32 @@ fit_rf <- train(Size ~.,
                 tuneGrid = tuneGrid,
                 trControl = trControl,
                 importance = TRUE,
-                nodesize = 8,
-                ntree = 1000,
-                maxnodes = 22)
+                nodesize = 7,
+                ntree = 1001,
+                maxnodes = 31)
 
 fit_rf$results 
-testrf <- randomForest(Size ~.,
-                testing_set,
-                metric = "RMSE",
-                importance = TRUE,
-                nodesize = 8,
-                ntree = 1000,
-                maxnodes = 22)
 
-testrf$results 
-
-# Evaluate Model with caret
 # Performance on Testing Data
-#Generate Predictions
+
+#Generate Predictions w/ testing set
 y_predict <- predict(
   object=fit_rf,
   newdata=testing_set[, -1]  # data for predictions, no Size
 )
 
-install.packages("Metrics")
-library(Metrics)
+# compare actual values of testing set with ones predicted from model
+
 ##calculate RMSE of models
-RMSE_8 <- rmse(testing_set$Size, y_predict)
-cor(testing_set$Size, y_predict) ^ 2
+RMSE_2 <- rmse(testing_set$Size, y_predict)
+corr_2 <- cor(testing_set$Size, y_predict) ^ 2
+
+RMSE_2
+corr_2
+
+RMSE_1 <- rmse(testing_set$Size, y_predict)
+corr_1 <- cor(testing_set$Size, y_predict) ^ 2
+
 
 # https://www.guru99.com/r-random-forest-tutorial.html
 
@@ -257,61 +409,59 @@ cor(testing_set$Size, y_predict) ^ 2
 
 
 ### Check variable importance 
+
+# trained model
 fit_rf
-rf2 <- randomForest(Size~., data = testing_set, mtry=8,
-                    nodesize = 8, 
-                    maxnodes = 22, 
-                    ntree = 1000,
-                    importance=T)
+#tested model
+testrf <- randomForest(Size ~.,
+                       testing_set,
+                       metric = "RMSE",
+                       importance = TRUE,
+                       mtry = best_mtry,
+                       nodesize = 7,
+                       ntree = 1001,
+                       maxnodes = 31)
 
-p2 <- create_rfplot(rf2, type = 1)
-rf2$importance
+testrf 
 
-which.min(rf2$mse)
-
-#find RMSE of best model
-sqrt(rf2$mse[which.min(rf2$mse)])
-#   #AVG diff btw predicted and observed
+#plot importance - %MEI
+p2 <- create_rfplot(testrf, type = 1)
+p2
+testrf$importance
 
 # plot test MSE based on # of trees used
-plot(rf2)
+plot(testrf)
 
 # plot with importance of each predictor var 
-varImpPlot(rf2, type = 1)
-#x-axis= avg.incr in node purity of regression trees y-axis=splitting of various predictors
-
-
-# Multi-dimensional Scaling Plot of Proximity Matrix
-MDSplot(rf2, testing_set$Size)
-
+varImpPlot(testrf, type = 1)
+#x-axis= avg.incr in node purity of regression trees
+#y-axis=splitting of various predictors
 #Variable Importance
-varImpPlot(rf2,
+varImpPlot(testrf,
            sort = T,
         #  n.var = 10,
            type = 1,
-           main = "Top 10 - Variable Importance")
-importance(rf) #MeanDecreaseGini
+           main = "Variable Importance")
 
 
 # Get variable importance from the model fit
-ImpData <- as.data.frame(importance(rf2))
+ImpData <- as.data.frame(importance(testrf))
 ImpData$Var.Names <- row.names(ImpData)
 
-ggplot(ImpData, aes(x=Var.Names, y=`%IncMSE`)) +
-  geom_segment( aes(x=Var.Names, xend=Var.Names, y=0, yend=`%IncMSE`), color="skyblue") +
+ggplot(ImpData, aes(x=reorder(Var.Names, `%IncMSE`), y=`%IncMSE`)) +
+  geom_segment( aes(x=reorder(Var.Names, `%IncMSE`), xend=reorder(Var.Names, `%IncMSE`), y=0, yend=`%IncMSE`), color="skyblue") +
   geom_point(aes(size = IncNodePurity), color="blue", alpha=0.6) +
   theme_light() +
   coord_flip() +
   theme(
     legend.position="bottom",
     panel.grid.major.y = element_blank(),
-    panel.border = element_blank(),
+    panel.border = element_blank(), 
     axis.ticks.y = element_blank()
   )
 
 
-# No. of Nodes
-hist(treesize(rf2),
+hist(treesize(testrf),
      main = "No. of Nodes for the Trees",
      col = "green")
 
@@ -323,20 +473,6 @@ hist(treesize(rf2),
 ##############################################################################
 #############################################################################
 #####################
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -448,7 +584,7 @@ which.min(rf$mse)
 sqrt(rf$mse[which.min(rf$mse)])
 #   #AVG diff btw predicted and observed
 
-# plot test MSE based on # of trees used
+# plottest MSE based on # of trees used
 plot(rf)
 
 # plot with importance of each predictor var 
@@ -514,25 +650,9 @@ df['random'] <- runif(nrow(df))
 glimpse(df)
 
 ##########
+#Final Model
+testrf
 #
-#Tunded model
-fit_rf <- train(Size ~.,
-                training_set,
-                method = "rf",
-                metric = "RMSE",
-                tuneGrid = tuneGrid,
-                trControl = trControl,
-                importance = TRUE,
-                nodesize = 8,
-                ntree = 1000,
-                maxnodes = 22)
-fit_rf$finalModel 
-store_maxnode
-store_maxtrees
-store_nodesize
-
-
-
 ### Type 1 - Mean decrease in MSE by **Permutation
 # without random column
 
