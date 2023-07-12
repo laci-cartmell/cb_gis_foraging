@@ -207,6 +207,33 @@ plot(Size ~ D, data = datatable)
 cor(datatable$Size, datatable$D)
 
 
+
+### Correlation for Simpsons Diversity
+# Create categories
+size <- datatable$Size
+sdiver <- datatable$D
+
+#
+#Plot Index vs. Size
+plot(size ~ sdiver)
+
+#distribution of dependent variable, size
+hist(size)
+
+#distribution of independent variable, Simpsons Diversity Index
+hist(sdiver)
+
+## both skewed and non-normal
+
+#pearsons correlation - Using this bc variable is interval, means not robust w/outliers
+# cor(x, y, method="pearson") - correlation coefficient. Doesnt give p-value
+
+# cor.test(x,y, method="pearson") - test for association btw paired samples
+res = cor.test(size, sdiver, method = "pearson")     # "spearman"
+print(res)
+
+
+
 #################
 # MODELTRAINING #
 ###################
