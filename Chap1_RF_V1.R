@@ -3,11 +3,11 @@
 # Code for Chapter 1 of my dissertation thesis
 ##
 # VERSION 1.1
-#   A. Data Visualization
-#   B. Regression Analysis
-#   C. Random Forest
+#   A. Data Visualization - histograms, scatter plots, correlagrams
+#   B. Analysis - Simpsons D, Corr., RFRM, MDS plots
+#   C. Analysis Visualizations - Plots,  Forest
 ##
-# Using NLCD Land Use data from 2001-2019, created a dataset of the porportion 
+# Using NLCD Land Use data from 2001-2019, created a dataset of the proportion 
 #   of land use type within a 1-km foraging radius of a colony site
 #  Other variables: Active or non-active; gps coordinates; year; # of nests;
 #   temperature variability; Avg. temp over nesting/non-breeding season;
@@ -15,8 +15,10 @@
 #
 ########################
 
+#laptop
 setwd("C:/Users/Owner/Documents/GitHub/cb_gis_foraging")
-
+#desktop
+setwd("~/R/R_Class/cb_gis_foraging")
 
 
 ##########################
@@ -26,15 +28,15 @@ setwd("C:/Users/Owner/Documents/GitHub/cb_gis_foraging")
 
 
 install.packages("Metrics")
-library(Metrics)
 install.packages("randomForest")
-install.packages('caret')
 install.packages("tidyverse")
 install.packages("ggplot2")
 install.packages("gridExtra")
 install.packages("cowplot")
 install.packages("e1071")
-
+install.packages('caret')
+install.packages("dplyr")
+library(dplyr)
 library(randomForest)
 library(datasets)
 library(caret) # confusion Matrix
@@ -44,6 +46,7 @@ library(cowplot)
 library(gridExtra)
 library(e1071)
 library(readxl)
+library(Metrics)
 
 
 # fit the rf model
@@ -62,14 +65,32 @@ glimpse(datatable)
 view(datatable)
 # 1362x20
 
+#create categorical Size from Continuous
+#split based on number
+datatable$cat <- cut(datatable$Size,
+                     breaks=c(-Inf, 0, 100, 500, Inf), #Inf includes to end of range
+                     labels = c('NotPresent', 'Small', 'Medium', 'Large')) #one less than breaks
+table(datatable$cat)
+View(datatable)
+
+#split on equal sized bins
+datatable$cat <- cut(datatable$Size,
+                     breaks=4,
+                     labels = c('Small', 'Medium', 'Large', 'X-Large'))
+table(datatable$cat)
+View(datatable)
+
 # factor Colony Name, Substrate, Year
 #  SPECIFY SUBSTRATE/YEAR/COLONYNAME AS FACTOR VARS, INDICATE BASE FOR SUBSTRATE AND YEAR
 datatable$COLONYNAME <- as.factor(datatable$COLONYNAME)
 datatable$Substrate <- as.factor(datatable$Substrate)
 datatable$Year <- as.factor(datatable$Year)
-is.factor(datatable$Substrate)
+datatable$cat <- as.factor(datatable$cat)
+is.factor(datatable$cat)
 
-## COORDINATES
+
+
+####### COORDINATES
 colcoords <- read_excel("F:\nlcd_land_cover_l48_20210604\ColonyData\NLCD_Coordinates.xlsx",
                         sheet = "sheet1")
 #unique rows only
@@ -91,7 +112,7 @@ data <- datatable[,5:19]
 #"Open_Water", "Developed", "Barren_Land", "Deciduous_Forest","Evergreen_Forest", "Mixed_Forest", "Shrub_Scrub", "Herbaceous", "Hay_Pasture", "Cultivated_Crops", "Wetlands")]
 #corelation matrix
 M2 <- cor(data)
-head(round(M,2))
+head(round(M2,2))
 
 #visualizing correlogram
 #as circle
@@ -117,9 +138,9 @@ corrplot(M2, type="upper", order = "hclust", col = col(200))
 
 col<- colorRampPalette(c("red", "white", "blue"))(20)
 
-corrplot(M, type="upper", order = "hclust", col = col)
+corrplot(M2, type="upper", order = "hclust", col = col)
 
-corrplot(M, type="upper", order = "hclust", 
+corrplot(M2, type="upper", order = "hclust", 
          col=brewer.pal(n = 8, name = "RdBu"))
 
 ## Correlation matrix with pvalues
@@ -149,7 +170,7 @@ p.mat <- cor.mtest(data)
 head(p.mat[, 1:5])
 # Specialized the insignificant value
 # according to the significant level
-corrplot(M2, type = "upper", order = "hclust", col = col(200),
+corrplot(M2, type = "upper", col = col(200),
          tl.col="black", tl.srt = 45, #text labels, with rotation
                   p.mat = p.mat, sig.level = 0.01)
 
@@ -203,6 +224,8 @@ ggqqplot(datatable$Size)
 
 ## Check linearity
 plot(Size ~ D, data = datatable)
+plot(Size ~ Year, data = datatable)
+plot(D ~ cat, data = datatable)
 
 cor(datatable$Size, datatable$D)
 
@@ -211,26 +234,33 @@ cor(datatable$Size, datatable$D)
 ### Correlation for Simpsons Diversity
 # Create categories
 size <- datatable$Size
-sdiver <- datatable$D
+SimpsD <- datatable$D
 
 #
 #Plot Index vs. Size
-plot(size ~ sdiver)
+plot(size ~ SimpsD)
 
 #distribution of dependent variable, size
 hist(size)
 
 #distribution of independent variable, Simpsons Diversity Index
 hist(sdiver)
+#### Higher frequency of higher diversity across the foraging range. 
+###  Clear separation between low and high diversity in land use types. 
+# W/size.simpsD indicates that as simpson's D increases Size does as well. This 
+# shows that more diversity within 1-km correlates with more nests. 
+####
+# cor.test(x,y, method="pearson") - test for association btw paired samples
+res = cor.test(size, SimpsD, method = "pearson")     # "spearman"
+print(res)
+
+#weak but highly significant correlation 
+###
 
 ## both skewed and non-normal
 
 #pearsons correlation - Using this bc variable is interval, means not robust w/outliers
 # cor(x, y, method="pearson") - correlation coefficient. Doesnt give p-value
-
-# cor.test(x,y, method="pearson") - test for association btw paired samples
-res = cor.test(size, sdiver, method = "pearson")     # "spearman"
-print(res)
 
 
 
@@ -239,28 +269,39 @@ print(res)
 ###################
 
 glimpse(datatable)
+#Check for NaN or Inf and replace with NA if present
+#is all a variable NA
+all(is.na(datatable$Size))
+#Replace NaN & Inf with NA
+datatable[is.na(datatable) | datatable=="-Inf"] = NA
+
 #Remove colony ID
-features <- colnames(datatable[-2])
+features <- colnames(datatable[2:19])
 df <- datatable[,features] 
 columns <- colnames(df)
 
 glimpse(features)
 glimpse(df)
-# mtry = 1/3 *p
+
+
+# Based on common recommended mtry for regression RFs
+# mtry = 1/3 *p - where p = ncol
 mtry_r =(ncol(df)/3)
 mtry_r
 
 # Set seed for reproducibility 
 set.seed(1273)
 
-#split dataset into training (70%) testing (30%)
+#split dataset into training (80%) testing (20%) based on location so that if only 1 location available then goes to sample
 train_index <- createDataPartition(y=df$Size, p=0.8, list=FALSE)
 
+# taking 80% of rows from each Size
 #subset data
 training_set <- df[train_index, ]
+
 testing_set <- df[-train_index, ]
 
-
+View(training_set)
 #https://www.guru99.com/r-random-forest-tutorial.html
 
 
@@ -299,7 +340,7 @@ print(rfmtry)
 # best value of mtry
 rfmtry$bestTune$mtry
 max(rfmtry$results$RMSE)
-best_mtry <-  rfmtry$bestTune$mtry
+best_mtry <- 6 #rfmtry$bestTune$mtry
 best_mtry
 
  ##Find best maxnodes
@@ -309,7 +350,7 @@ store_maxnode <- list()
 #use best mtry
 tuneGrid <- expand.grid(.mtry = best_mtry)
 #loop to evaluate maxnode values 5-15
-for (maxnodes in c(20: 35)) {
+for (maxnodes in c(15: 35)) {
   rf_maxnode <- train(Size~.,
                       data = training_set,
                       method = "rf",
@@ -317,7 +358,7 @@ for (maxnodes in c(20: 35)) {
                       tuneGrid = tuneGrid,
                       trControl = trControl,
                       importance = TRUE,
-                      nodesize = 4,
+                      nodesize = 5,
                       maxnodes = maxnodes,
                       ntree = 301)
   current_iteration <- toString(maxnodes)
@@ -327,7 +368,7 @@ print(rf_maxnode)
 results_mAX <- resamples(store_maxnode)
 summary(results_mAX)
 
- ## 32 - 332.0108
+  ## 32 - 332.0108
  ## 31 - 328
 
 #node size - larger value is more general tree - of 1 = matched but overfitt
@@ -336,7 +377,7 @@ store_nodesize <- list()
 #use best mtry
 tuneGrid <- expand.grid(.mtry = best_mtry)
 
-for (nodesize in c(3: 18)) {
+for (nodesize in c(3: 20)) {
   rf_nodesize <- train(Size~.,
                       data = training_set,
                       method = "rf",
@@ -353,7 +394,7 @@ for (nodesize in c(3: 18)) {
 print(rf_nodesize)
 results_nodesize <- resamples(store_nodesize)
 summary(results_nodesize)
-#7
+ #10 - 326.0325, .5572784
 
 ## Best number of trees
 set.seed(61273)
@@ -404,7 +445,9 @@ fit_rf <- train(Size ~.,
                 importance = TRUE,
                 nodesize = 7,
                 ntree = 1001,
-                maxnodes = 31)
+                maxnodes = 31,
+                proximity=TRUE, 
+                )
 
 fit_rf$results 
 
@@ -444,10 +487,12 @@ testrf <- randomForest(Size ~.,
                        testing_set,
                        metric = "RMSE",
                        importance = TRUE,
-                       mtry = best_mtry,
+                       mtry = 6,
                        nodesize = 7,
                        ntree = 1001,
-                       maxnodes = 31)
+                       maxnodes = 31,
+                       proximity=TRUE, 
+                      )
 
 testrf 
 
@@ -487,10 +532,28 @@ ggplot(ImpData, aes(x=reorder(Var.Names, `%IncMSE`), y=`%IncMSE`)) +
     axis.ticks.y = element_blank()
   )
 
+# No. of Nodes
+hist(treesize(testrf),
+     main = "No. of Nodes for the Trees",
+     col = "green")
+
+
+
+#https://www.r-bloggers.com/2021/04/random-forest-in-r/
+
+# MDS Plots must have a categorical 
+MDSplot(testrf, datatable$cat)
+# Multi-dimensional Scaling Plot of Proximity Matrix
+MDSplot(testrf, datatable$cat,
+        palette=rep(1, 3), pch=as.numeric(testing_set$Substrate))
+#uses plot in environment
+legend("topleft", legend=levels(datatable$cat))
 
 hist(treesize(testrf),
      main = "No. of Nodes for the Trees",
      col = "green")
+
+
 
 
 
@@ -830,19 +893,6 @@ plot(ozone.rf)
 
 # Saving the file
 dev.off()
-
-# No. of Nodes
-hist(treesize(rf),
-     main = "No. of Nodes for the Trees",
-     col = "green")
-
-# Partial Dependence Plot
-partialPlot(rf, train, Petal.Width, "setosa")
-
-# Multi-dimensional Scaling Plot of Proximity Matrix
-MDSplot(rf, train$Species)
-
-#https://www.r-bloggers.com/2021/04/random-forest-in-r/
 
 #############
 # Tuned Model with cross-validation - tuneGrid
